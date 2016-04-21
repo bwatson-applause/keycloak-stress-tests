@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+export KST_BASE_URL=http://localhost-docker:8080/auth/
+export KST_REALM_NAME=stress-test-realm-001
+export KST_CLIENT_ID=gatling-stress-test-tool
+export KST_CLIENT_SECRET=CLIENT_SECRET
+export KST_SKIP_USER_CREATION=0
+export KST_USER_COUNT=200
+export KST_START_USER_INDEX=0
+export KST_THREAD_COUNT=4
