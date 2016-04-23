@@ -1,10 +1,9 @@
 package com.applause.test.keycloak.stress.introspect
 
-import java.net.URI
 import java.util.UUID
 import java.util.concurrent.{Executors, ThreadFactory}
 
-import com.applause.test.keycloak.client.{OIDCClient, OIDCClientCredentials}
+import com.applause.test.keycloak.client.{OIDCPasswordCredentials, OIDCClient}
 import com.applause.test.keycloak.dom._
 import com.applause.test.keycloak.util._
 import com.google.api.client.http.javanet.NetHttpTransport
@@ -20,8 +19,11 @@ object StressTestData {
   import com.applause.test.keycloak.client.rest._
   import RestApiPaths._
 
+  /** The name of the client used for data seeding */
+  private val dataSeedClientName = "admin-cli"
+
   /** The name of the client used for stress tests */
-  private val stressTestClientName = "stress-test-client"
+  val stressTestClientName = "stress-test-client"
 
   /**
     * Create a fixed size thread pool.
@@ -106,7 +108,7 @@ object StressTestData {
     * Create test user credentials for the given seed.
     *
     * @param n the seed
-    * @return the generated user cerdentials
+    * @return the generated user credentials
     */
   def testUserCredentials(n: Int): UserCredentials = withUserSeedData(n) { (padded, uuid) =>
     UserCredentials(emailForPadded(padded), uuid)
@@ -133,18 +135,19 @@ object StressTestData {
     * @return the resulting realm and OAuth2 client data
     */
   def ensureRealm(config: Config) = {
-    implicit val executionContext = createExecutionContext(config.threads)
+    println("==== Ensuring realm data.")
+    implicit val executionContext = createExecutionContext(config.dataSeedThreads)
 
     implicit val transport = new NetHttpTransport()
-    implicit val baseURI = new URI(config.baseUrl)
+    implicit val baseURI = config.baseURI
 
-    val adminClientCreds = OIDCClientCredentials(config.clientId, config.clientSecret)
-    val adminClient = OIDCClient.forClientCredentials(baseURI, tokenPath(masterRealmName), transport, adminClientCreds)
+    val adminUserCreds = OIDCPasswordCredentials(config.adminUser, config.adminPassword, dataSeedClientName)
+    val adminClient = OIDCClient.forCredentials(baseURI, tokenPath(masterRealmName), transport, adminUserCreds)
 
     // This client factory will automatically handle OAuth2 token (re)fetches.
     implicit val factory = adminClient.httpRequestFactory
 
-    val realmCreationData = RealmCreationData(config.realmName, config.realmName)
+    val realmCreationData = RealmCreationData(config.realmName)
     val clientCreationData = ClientCreationData(stressTestClientName)
 
     for {
@@ -152,29 +155,37 @@ object StressTestData {
 
       client <- fetchOrCreate(fetchClientByClientId(realm, clientCreationData.clientId))(createClient(realm, clientCreationData))
 
-      roleMap <- (0 until 16).map { n =>
-        val roleName = toTestRoleName(n)
-        fetchOrCreate(fetchRole(realm, roleName))(createRole(realm, RoleCreationData(roleName)))
-      } .foldRight[\/[ResponseError, Map[String, Role]]](\/-(Map.empty)) { (roleE, mE) =>
-        roleE.flatMap(role => mE.map(_ + (role.name -> role)))
-      }
-
-      userResult <-
-        if (config.skipUserCreation) \/-()
-        else {
-          Stream.range(config.startUserIndex, config.startUserIndex + config.userCount).grouped(config.threads).map { grpStream =>
-            Await.result(Future.sequence(grpStream.toList.map { n => Future {
-              val userData = testUserCreationData(n, roleMap)
-              if (n % 100 == 0) println(s"==== Processing user $n ...")
-              fetchOrCreate(fetchUserByUsername(realm, userData.username))(initializeUser(realm, userData))
+      userCreationResult <-
+        if (config.skipUserCreation) {
+          println("==== Skipping user creation.")
+          \/-()
+        } else {
+          for {
+            roleMap <- (0 until 16).map { n =>
+              val roleName = toTestRoleName(n)
+              fetchOrCreate(fetchRole(realm, roleName))(createRole(realm, RoleCreationData(roleName)))
+            }.foldRight[\/[ResponseError, Map[String, Role]]](\/-(Map.empty)) { (roleE, mE) =>
+              roleE.flatMap(role => mE.map(_ + (role.name -> role)))
             }
-            }), 10 seconds).foldRight[\/[ResponseError, Unit]](\/-()) { (acc, u) => acc.flatMap(_ => u) }
-          }.foldRight[\/[ResponseError, Unit]](\/-()) { (acc, u) => acc.flatMap(_ => u) }
-        } map { result =>
-          println(s"==== Processed ${config.userCount} user(s)")
-          result
+
+            userResult <-
+              Stream.range(config.startUserIndex, config.startUserIndex + config.userCount).grouped(config.dataSeedThreads).map { grpStream =>
+                Await.result(Future.sequence(grpStream.toList.map { n =>
+                  Future {
+                    val userData = testUserCreationData(n, roleMap)
+                    if (n % 100 == 0) println(s"==== Processing user $n ...")
+                    fetchOrCreate(fetchUserByUsername(realm, userData.username))(initializeUser(realm, userData))
+                  }
+                }), 10 seconds).foldRight[\/[ResponseError, Unit]](\/-()) { (acc, u) => acc.flatMap(_ => u) }
+              }.foldRight[\/[ResponseError, Unit]](\/-()) {
+                (acc, u) => acc.flatMap(_ => u)
+              }.map { result =>
+                println(s"==== Processed ${config.userCount} user(s)")
+                result
+              }
+          } yield userResult
         }
-    } yield ( realm, client )
+    } yield (realm, client)
   }
 
   /**

@@ -34,15 +34,15 @@ class KeycloakTokenIntrospectionSimulation extends Simulation {
 
       // The base HTTP request data.
       val BaseHttpConfig = http
-        .baseURL(config.baseUrl)
+        .baseURL(config.baseURI.toASCIIString)
         .acceptHeader("*/*")
         .acceptLanguageHeader("en-US,en;q=0.8")
         .acceptEncodingHeader("gzip, deflate")
         .userAgentHeader("Gatling Stress Test Tool")
 
       // Create the needed URL paths.
-      val tokenRequestPath = tokenPath(config.realmName)
-      val tokenIntrospectionRequestPath = tokenIntrospectionPath(config.realmName)
+      val tokenRequestPath = tokenPath(realm.name)
+      val tokenIntrospectionRequestPath = tokenIntrospectionPath(realm.name)
 
       /**
         * Scenario for initializing sessions.

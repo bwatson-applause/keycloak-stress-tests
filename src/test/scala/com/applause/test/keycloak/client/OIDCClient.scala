@@ -5,6 +5,7 @@ import java.net.URI
 import com.google.api.client.auth.oauth2.Credential.Builder
 import com.google.api.client.auth.oauth2._
 import com.google.api.client.http._
+import com.google.api.client.json.JsonFactory
 import com.google.api.client.json.jackson2._
 
 import scala.util.Try
@@ -18,6 +19,7 @@ object OIDCClient {
 
   /**
     * An OIDCClient that uses the Google Credential class for handling OAuth2 client credential token request
+    *
     * @param credential the Google Credential instance
     */
   private class CredentialOIDCClient(
@@ -41,14 +43,15 @@ object OIDCClient {
   }
 
   /**
-    * Creata a client using the provided cedentials for the OAuth2 client credentials grant flow.
+    * Creata a client using the provided credentials for the OAuth2 client credentials grant flow.
+    *
     * @param baseURI The base URI of the OIDC compatible server
     * @param tokenPath the path of the server's OAuth2 token endpoint
-    * @param transport the HTTP transport to use in commincations
+    * @param transport the HTTP transport to use in communications
     * @param creds the OIDC client credentials
     * @return
     */
-  def forClientCredentials(
+  def forCredentials(
     baseURI: URI,
     tokenPath: String,
     transport: HttpTransport,
@@ -65,6 +68,46 @@ object OIDCClient {
           .execute()
 
     // Create the credentials handler.
+    createCredentials(transport, jsonFactory, tokenServerUrl, authentication, initialTokenResponse)
+  }
+
+  /**
+    * Creata a client using the provided credentials for the OAuth2 resource owner password credentials grant flow.
+    *
+    * @param baseURI The base URI of the OIDC compatible server
+    * @param tokenPath the path of the server's OAuth2 token endpoint
+    * @param transport the HTTP transport to use in communications
+    * @param creds the OIDC client credentials
+    * @return
+    */
+  def forCredentials(
+    baseURI: URI,
+    tokenPath: String,
+    transport: HttpTransport,
+    creds: OIDCPasswordCredentials
+  ): OIDCClient = {
+    val jsonFactory = new JacksonFactory()
+    val tokenServerUrl = new GenericUrl(baseURI.resolve(tokenPath))
+    val authentication = new ClientParametersAuthentication(creds.clientId, creds.clientSecret.orNull)
+
+    // Obtain an initial access and refresh token.
+    val initialTokenResponse =
+      new PasswordTokenRequest(transport, jsonFactory, tokenServerUrl, creds.username, creds.password)
+        .setClientAuthentication(authentication)
+        .execute()
+
+    // Create the credentials handler.
+    createCredentials(transport, jsonFactory, tokenServerUrl, authentication, initialTokenResponse)
+  }
+
+  private def createCredentials(
+    transport: HttpTransport,
+    jsonFactory: JsonFactory,
+    tokenServerUrl: GenericUrl,
+    authentication: HttpExecuteInterceptor,
+    tokenResponse: TokenResponse
+  ): CredentialOIDCClient = {
+    // Create the credentials handler.
     val credential =
       new Builder(BearerToken.authorizationHeaderAccessMethod())
         .setTransport(transport)
@@ -72,7 +115,7 @@ object OIDCClient {
         .setTokenServerUrl(tokenServerUrl)
         .setClientAuthentication(authentication)
         .build()
-        .setFromTokenResponse(initialTokenResponse)
+        .setFromTokenResponse(tokenResponse)
 
     new CredentialOIDCClient(credential)
   }

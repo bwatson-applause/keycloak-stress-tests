@@ -20,7 +20,7 @@ object Realm {
   implicit val RealmCreationWrites = new Writes[RealmCreationData] {
     def writes(realm: RealmCreationData) = Json.obj(
       "enabled" -> true,
-      "id" -> realm.id,
+      "id" -> realm.name,
       "realm" -> realm.name,
       "accessTokenLifespan" -> sessionLength,
       "accessTokenLifespanForImplicitFlow" -> sessionLength,
@@ -51,10 +51,8 @@ case class Realm(
 
 /**
   * The realm creation data.
-  * @param id the ID of the realm
   * @param name the name of the realm
   */
 case class RealmCreationData(
-  id: String,
   name: String
 )

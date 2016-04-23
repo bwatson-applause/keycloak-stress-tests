@@ -1,6 +1,6 @@
-name := "keycloak-stress-tests"
-
 enablePlugins(GatlingPlugin)
+
+name := "keycloak-stress-tests"
 
 version := "1.0"
 
@@ -15,5 +15,3 @@ libraryDependencies ++= Seq(
   "io.gatling.highcharts" % "gatling-charts-highcharts" % "2.1.7" % "test",
   "io.gatling" % "gatling-test-framework" % "2.1.7" % "test"
 )
-
-publishArtifact in (Test, packageBin) := true
